@@ -1,70 +1,39 @@
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>ESP32 BLE Read</title>
-<style>
-      body { font-family: system-ui, sans-serif; padding: 16px; }
-      button { padding: 10px 14px; margin-right: 8px; }
-      pre { background: #f4f4f4; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
-</style>
-</head>
-<body>
 <button id="connect">Connect</button>
-<button id="disconnect" disabled>Disconnect</button>
 <pre id="log"></pre>
+<script>
+const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+const CHAR_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+const logEl = document.getElementById("log");
+const log = (m) => logEl.textContent += m + "\n";
  
-    <script>
-      const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
-      const CHAR_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+document.getElementById("connect").onclick = async () => {
+  try {
+    log("Requesting device...");
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [SERVICE_UUID] }]
+    });
  
-      const logEl = document.getElementById("log");
-      const log = (s) => (logEl.textContent += s + "\n");
+    log("Connecting GATT...");
+    const server = await device.gatt.connect();
  
-      let device = null;
-      let server = null;
-      let characteristic = null;
+    log("Getting service...");
+    const service = await server.getPrimaryService(SERVICE_UUID);
  
-      document.getElementById("connect").addEventListener("click", async () => {
-        try {
-          device = await navigator.bluetooth.requestDevice({
-            filters: [{ services: [SERVICE_UUID] }],
-          });
+    log("Getting characteristic...");
+    const ch = await service.getCharacteristic(CHAR_UUID);
  
-          device.addEventListener("gattserverdisconnected", () => {
-            log("Disconnected");
-            document.getElementById("disconnect").disabled = true;
-          });
+    log("Starting notifications...");
+    await ch.startNotifications();
  
-          server = await device.gatt.connect();
-          const service = await server.getPrimaryService(SERVICE_UUID);
-          characteristic = await service.getCharacteristic(CHAR_UUID);
+    ch.addEventListener("characteristicvaluechanged", (e) => {
+      const dv = e.target.value;
+      const txt = new TextDecoder().decode(dv.buffer);
+      log("RX: " + txt);
+    });
  
-          await characteristic.startNotifications();
-          characteristic.addEventListener("characteristicvaluechanged", (event) => {
-            const dv = event.target.value; // DataView
-            const text = new TextDecoder().decode(dv.buffer); // your ESP32 sends String(value)
-            log("RX: " + text);
-          });
- 
-          log("Connected. Listening for notifications...");
-          document.getElementById("disconnect").disabled = false;
-        } catch (err) {
-          log("Error: " + err);
-        }
-      });
- 
-      document.getElementById("disconnect").addEventListener("click", async () => {
-        try {
-          if (characteristic) {
-            characteristic.removeEventListener("characteristicvaluechanged", () => {});
-          }
-          if (device?.gatt?.connected) device.gatt.disconnect();
-        } finally {
-          document.getElementById("disconnect").disabled = true;
-        }
-      });
+    log("✅ Listening!");
+  } catch (e) {
+    log("❌ " + e.name + ": " + e.message);
+  }
+};
 </script>
-</body>
-</html>
