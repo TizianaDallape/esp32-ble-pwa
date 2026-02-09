@@ -1,39 +1,91 @@
+\<!doctype html>
+<html>
+<body>
 <button id="connect">Connect</button>
+<button id="stop" disabled>Stop</button>
 <pre id="log"></pre>
+ 
 <script>
+
 const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+
 const CHAR_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+ 
 const logEl = document.getElementById("log");
+
 const log = (m) => logEl.textContent += m + "\n";
  
+let device, ch, timer;
+ 
 document.getElementById("connect").onclick = async () => {
+
   try {
+
     log("Requesting device...");
-    const device = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [SERVICE_UUID] }]
+
+    device = await navigator.bluetooth.requestDevice({
+
+      filters: [{ services: [SERVICE_UUID] }],
+
     });
  
     log("Connecting GATT...");
+
     const server = await device.gatt.connect();
  
     log("Getting service...");
+
     const service = await server.getPrimaryService(SERVICE_UUID);
  
     log("Getting characteristic...");
-    const ch = await service.getCharacteristic(CHAR_UUID);
+
+    ch = await service.getCharacteristic(CHAR_UUID);
  
-    log("Starting notifications...");
-    await ch.startNotifications();
+    log("Reading (polling)...");
+
+    timer = setInterval(async () => {
+
+      try {
+
+        const dv = await ch.readValue();       // DataView
+
+        const txt = new TextDecoder().decode(dv.buffer).trim();
+
+        log("RX: " + txt);
+
+      } catch (e) {
+
+        log("Read error: " + e.name + " " + e.message);
+
+      }
+
+    }, 500); // 2 reads/second
  
-    ch.addEventListener("characteristicvaluechanged", (e) => {
-      const dv = e.target.value;
-      const txt = new TextDecoder().decode(dv.buffer);
-      log("RX: " + txt);
-    });
- 
-    log("✅ Listening!");
+    document.getElementById("stop").disabled = false;
+
   } catch (e) {
+
     log("❌ " + e.name + ": " + e.message);
+
   }
+
+};
+ 
+document.getElementById("stop").onclick = () => {
+
+  clearInterval(timer);
+
+  timer = null;
+
+  if (device?.gatt?.connected) device.gatt.disconnect();
+
+  document.getElementById("stop").disabled = true;
+
+  log("Stopped.");
+
 };
 </script>
+</body>
+</html>
+
+ 
