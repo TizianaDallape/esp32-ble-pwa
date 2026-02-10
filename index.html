@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
 <body>
-  <button id="connect">Connect & Read BOTH</button>
+  <button id="connect">Connect & Read</button>
   <button id="save" disabled>Save file</button>
   <pre id="log"></pre>
 
@@ -12,8 +12,8 @@ const CHAR_H_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 const SERVICE_V_UUID = "25971dbc-e721-4b15-881b-d0eb84c894b1"; //BOLLA VERTICALE: ROLL/PITCH (2 righe)
 const CHAR_V_UUID    = "bdc979f5-a3f9-4004-9a9f-544d8fcfaf4c";
 
-const logEl = document.getElementById("log");           //log helper
-const log = (m) => { logEl.textContent += m + "\n"; };
+const logEl = document.getElementById("log");     //log helper
+const log = (m) => logEl.textContent += m + "\n";
 
 let ALIGN = null;
 let ROLL  = null;
@@ -22,127 +22,107 @@ let PITCH = null;
 //Pulsante principale: sequenza completa
 document.getElementById("connect").onclick = async () => {
   try {
-    logEl.textContent = "";
-    ALIGN = ROLL = PITCH = null;
-    document.getElementById("save").disabled = true;
+    log("\nSelect a BLE device…");
 
-    // 1) Seleziona e leggi dal dispositivo H (ALIGN)
-    log("STEP 1/2 • Seleziona dispositivo ALIGN (servizio H)...");
-    const alignTxt = await connectReadOnce({
-      serviceUUID: SERVICE_H_UUID,
-      charUUID: CHAR_H_UUID,
-      filterService: SERVICE_H_UUID, // filtra subito il device giusto
-      label: "ALIGN"
-    });
-    ALIGN = parseFloat(alignTxt);
-    if (!Number.isFinite(ALIGN)) throw new Error("ALIGN non numerico: " + alignTxt);
-    log("ALIGN = " + ALIGN);
-
-    // 2) Seleziona e leggi dal dispositivo V (ROLL/PITCH su due righe)
-    log("\nSTEP 2/2 • Seleziona dispositivo ROLL/PITCH (servizio V)...");
-    const rpTxt = await connectReadOnce({
-      serviceUUID: SERVICE_V_UUID,
-      charUUID: CHAR_V_UUID,
-      filterService: SERVICE_V_UUID,
-      label: "ROLL/PITCH"
-    });
-    // Decodifica due righe: ROLL in riga 1, PITCH in riga 2
-    const lines = rpTxt.split(/\r?\n/).map(s => s.trim()).filter(s => s.length > 0);
-    if (lines.length < 2) throw new Error("Attese 2 righe (ROLL, PITCH), ricevuto: " + JSON.stringify(lines));
-
-    ROLL  = parseFloat(lines[0]);
-    PITCH = parseFloat(lines[1]);
-    if (!Number.isFinite(ROLL) || !Number.isFinite(PITCH))
-      throw new Error("ROLL/PITCH non numerici: " + rpTxt);
-
-    log("ROLL  = " + ROLL);
-    log("PITCH = " + PITCH);
-
-    // Abilita salvataggio
-    document.getElementById("save").disabled = false;
-    log("\n✅ Letture completate. Premi 'Save file' per salvare il report.");
-
-  } catch (e) {
-    log("❌ " + e.name + ": " + e.message);
-  }
-};
-
-/* === Salvataggio su file .txt === */
-document.getElementById("save").onclick = async () => {
-  try {
-    if (!Number.isFinite(ALIGN) || !Number.isFinite(ROLL) || !Number.isFinite(PITCH))
-      throw new Error("Valori non pronti. Riesegui la lettura.");
-
-    const txt = `ALIGN: ${ALIGN}\nROLL: ${ROLL}\nPITCH: ${PITCH}\n`;
-    await saveTextFile(txt, "misure.txt");
-    log("💾 File salvato.");
-  } catch (e) {
-    log("❌ " + e.name + ": " + e.message);
-  }
-};
-
-/* === Funzione generica: seleziona device per service, legge una characteristic e disconnette === */
-async function connectReadOnce({ serviceUUID, charUUID, filterService, label }) {
-  let device = null;
-  try {
-    // 1) Scelta device filtrando per servizio (mostra solo i device con quel servizio)
-    device = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [filterService] }],
+    // === NESSUN FILTRO: fai scegliere all’utente ===
+    const device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [SERVICE_H_UUID, SERVICE_V_UUID]
     });
 
     device.addEventListener("gattserverdisconnected", () => {
-      log(`ℹ️ ${label}: device disconnected.`);
+      log("Disconnected.\n");
     });
 
-    // 2) Connessione
     const server = await device.gatt.connect();
+    log("Connected to: " + device.name);
 
-    // 3) Service + Characteristic
-    const service = await server.getPrimaryService(serviceUUID);
-    const ch = await service.getCharacteristic(charUUID);
+    // === Controlla quali servizi ha ===
+    const services = await server.getPrimaryServices();
+    const serviceUUIDs = services.map(s => s.uuid.toLowerCase());
+    log("Services found:\n" + serviceUUIDs.join("\n"));
 
-    // 4) Read (una sola volta)
-    const dv = await ch.readValue();
-    const value = decodeText(dv);
-    log(`📖 ${label}: RX = "${value.replace(/\r?\n/g, " | ")}"`);
+    let type = null;
 
-    // 5) Disconnessione
-    if (device.gatt.connected) device.gatt.disconnect();
-    return value;
+    // === RICONOSCIMENTO AUTOMATICO DEL TIPO DI ESP ===
+    if (serviceUUIDs.includes(SERVICE_H_UUID)) {
+      type = "H"; // ALIGN
+    } else if (serviceUUIDs.includes(SERVICE_V_UUID)) {
+      type = "V"; // ROLL/PITCH
+    } else {
+      throw new Error("Device not recognized as ALIGN or ROLL/PITCH");
+    }
+
+    let valueTxt = "";
+
+    if (type === "H") {
+      log("Detected: ALIGN device");
+      const service = await server.getPrimaryService(SERVICE_H_UUID);
+      const ch = await service.getCharacteristic(CHAR_H_UUID);
+
+      const dv = await ch.readValue();
+      valueTxt = decodeText(dv).trim();
+      ALIGN = parseFloat(valueTxt);
+
+      log("ALIGN = " + ALIGN);
+
+    } else if (type === "V") {
+      log("Detected: ROLL/PITCH device");
+      const service = await server.getPrimaryService(SERVICE_V_UUID);
+      const ch = await service.getCharacteristic(CHAR_V_UUID);
+
+      const dv = await ch.readValue();
+      valueTxt = decodeText(dv);
+
+      const lines = valueTxt.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+
+      if (lines.length < 2) throw new Error("Expected 2 lines for ROLL/PITCH");
+
+      ROLL  = parseFloat(lines[0]);
+      PITCH = parseFloat(lines[1]);
+
+      log("ROLL  = " + ROLL);
+      log("PITCH = " + PITCH);
+    }
+
+    // disconnessione
+    device.gatt.disconnect();
+
+    // attiva salvataggio solo se hai almeno un dato
+    if (ALIGN !== null || (ROLL !== null && PITCH !== null))
+      document.getElementById("save").disabled = false;
 
   } catch (e) {
-    // Prova a disconnettere in ogni caso
-    try { if (device?.gatt?.connected) device.gatt.disconnect(); } catch (_) {}
-    throw e;
+    log("❌ " + e.name + ": " + e.message);
   }
-}
+};
 
-/* === Decodifica robusta del DataView === */
+/* === Salvataggio file === */
+document.getElementById("save").onclick = async () => {
+  let txt = "";
+  if (ALIGN !== null) txt += `ALIGN: ${ALIGN}\n`;
+  if (ROLL  !== null) txt += `ROLL: ${ROLL}\n`;
+  if (PITCH !== null) txt += `PITCH: ${PITCH}\n`;
+
+  await downloadText(txt, "misure.txt");
+  log("Saved file.");
+};
+
+/* === Utils === */
 function decodeText(dataView) {
   const bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
-  return new TextDecoder().decode(bytes).trim();
+  return new TextDecoder().decode(bytes);
 }
 
-/* === Salvataggio: usa File System Access API se disponibile, altrimenti fallback download === */
-async function saveTextFile(text, filename) {
-  // Chrome/Edge moderni (anche Android) hanno showSaveFilePicker
-  if (window.showSaveFilePicker) {
-    const handle = await window.showSaveFilePicker({
-      suggestedName: filename,
-      types: [{ description: "Text file", accept: { "text/plain": [".txt"] } }]
-    });
-    const writable = await handle.createWritable();
-    await writable.write(text);
-    await writable.close();
-  } else {
-    // Fallback: download via Blob
-    const blob = new Blob([text], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement("a"), { href: url, download: filename });
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+async function downloadText(text, filename) {
+  const blob = new Blob([text], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
+
 </script>
 </body>
 </html>
