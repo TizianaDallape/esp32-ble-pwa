@@ -1,75 +1,70 @@
 <!doctype html>
 <html>
 <body>
-<button id="connect">Connect</button>
-<button id="stop" disabled>Stop</button>
-<pre id="log"></pre>
- 
-<script>
+  <button id="connect">Connect & Read once</button>
+  <pre id="log"></pre>
 
+<script>
 const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
 const CHAR_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+
 const logEl = document.getElementById("log");
-const log = (m) => logEl.textContent += m + "\n";
- 
-let device, ch, timer;
- 
+const log = (m) => { logEl.textContent += m + "\n"; };
+
+let device = null;
+let server = null;
+let ch = null;
+
 document.getElementById("connect").onclick = async () => {
   try {
     log("Requesting device...");
     device = await navigator.bluetooth.requestDevice({
       filters: [{ services: [SERVICE_UUID] }],
     });
- 
+
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+
     log("Connecting GATT...");
-    const server = await device.gatt.connect();
- 
+    server = await device.gatt.connect();
+
     log("Getting service...");
     const service = await server.getPrimaryService(SERVICE_UUID);
- 
+
     log("Getting characteristic...");
     ch = await service.getCharacteristic(CHAR_UUID);
 
-    async function readOnceAndDisconnect() {
-    // Connect only when needed
-    await connectOnce();
+    log("Reading value once...");
+    const dv = await ch.readValue();       // DataView
+    const value = decodeText(dv);
+    log("RX: " + value);
 
-    log("Reading once: ");
-    // Read once
-    const dv = await ch.readValue(); // DataView
-    const value = new TextDecoder().decode(dv.buffer).trim();
-    console.log("RX:", value);
-
-   
-    //log("Reading (polling)...");
-    //timer = setInterval(async () => {
-      //try {
-        //const dv = await ch.readValue();       // DataView
-        //const txt = new TextDecoder().decode(dv.buffer).trim();
-        //log("RX: " + txt);
-      //} catch (e) {
-        //log("Read error: " + e.name + " " + e.message);
-      //}
-    //}, 500); // 2 reads/second
-
+    log("Disconnecting...");
     device.gatt.disconnect();
-    return value;
-    //document.getElementById("stop").disabled = false;
-   } //catch (e) {
-    //log("❌ " + e.name + ": " + e.message);
-  //}
+
+  } catch (e) {
+    log("❌ " + e.name + ": " + e.message);
+    safeDisconnect();
   }
 };
- 
-document.getElementById("stop").onclick = () => {
-  clearInterval(timer);
-  timer = null;
-  if (device?.gatt?.connected) device.gatt.disconnect();
-  document.getElementById("stop").disabled = true;
-  log("Stopped.");
-};
+
+function onDisconnected() {
+  log("Device disconnected.");
+  // Eventuale pulizia UI
+}
+
+// Decodifica robusta del DataView (UTF-8 testuale)
+function decodeText(dataView) {
+  // Copia i byte esattamente letti (evita extra padding del buffer)
+  const bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
+  return new TextDecoder().decode(bytes).trim();
+}
+
+function safeDisconnect() {
+  try {
+    if (device?.gatt?.connected) device.gatt.disconnect();
+  } catch (_) {}
+}
 </script>
 </body>
 </html>
-
  
