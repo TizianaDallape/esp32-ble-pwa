@@ -21,10 +21,12 @@ let ALIGN = null;
 let ROLL  = null;
 let PITCH = null;
 
+log("Premi sul pulsante desiderato e seleziona il device per connetterti…");
+
 //Pulsante 1: HBubble -> lettura ALIGN
 document.getElementById("HBubble").onclick = async () => {
   try {
-    log("\nSeleziona bolla orizzontale…");
+    //log("\nSeleziona bolla orizzontale…");
     const txt = await readDeviceFiltered(SERVICE_H_UUID, CHAR_H_UUID);
 
     ALIGN = parseFloat(txt.trim());
@@ -41,7 +43,7 @@ document.getElementById("HBubble").onclick = async () => {
 //Pulsante 2: VBubble -> lettura ROLL/PITCH
 document.getElementById("VBubble").onclick = async () => {
   try {
-    log("\nSelect ROLL/PITCH device…");
+    //log("\nSeleziona bolla verticale…");
     const txt = await readDeviceFiltered(SERVICE_V_UUID, CHAR_V_UUID);
 
     const lines = txt.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
