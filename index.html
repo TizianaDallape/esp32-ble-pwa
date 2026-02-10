@@ -35,7 +35,7 @@
   <div>ALIGN: <span id="curAlign">—</span></div>
   <div>ROLL: <span id="curRoll">—</span></div>
   <div>PITCH: <span id="curPitch">—</span></div>
-  <div class="muted">Suggerimento: per ogni serramento compila ID, leggi ALIGN, poi ROLL/PITCH, quindi premi “Aggiungi record”.</div>
+  <div class="muted">Suggerimento: per ogni serramento compila ID, premi BOLLA ORIZZONTALE, poi BOLLA VERTICALE, quindi premi “Aggiungi record”.</div>
 </div>
 
 <div class="row">
@@ -269,7 +269,8 @@ btnExportCsv.onclick = () => {
   }
   const csv = rows.map(arr => arr.map(field => {
     const s = String(field ?? "");
-    return /[",;\n"]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    //return /[",;\n"]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    return /[";, \n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }).join("," )).join("\n");
   downloadText(csv, "misure.csv", "text/csv");
   log("Esportato CSV.");
