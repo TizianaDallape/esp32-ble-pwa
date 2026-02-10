@@ -1,62 +1,184 @@
 <!doctype html>
 <html>
+<head>
+<meta charset="utf-8" />
+<title>Misura Serramenti - ALIGN / ROLL-PITCH</title>
+<style>
+  body { font-family: system-ui, Arial, sans-serif; padding: 16px; line-height: 1.25; }
+  .row { margin-bottom: 10px; }
+  label { display: inline-block; min-width: 120px; }
+  input[type=text] { padding: 6px 8px; font-size: 14px; min-width: 220px; }
+  button { padding: 8px 12px; margin-right: 6px; margin-bottom: 6px; }
+  #log { background: #111; color: #0f0; padding: 10px; min-height: 160px; white-space: pre-wrap; }
+  .vals { background:#f6f6f6; padding:10px; border:1px solid #ddd; margin:10px 0; }
+  .vals div { margin: 4px 0; }
+  .muted { color:#666; font-size: 12px; }
+</style>
+</head>
 <body>
+
+<h2>Misure serramenti</h2>
+
+<div class="row">
+  <label for="doorId">ID serramento</label>
+  <input id="doorId" type="text" placeholder="Es. Porta-ScalaA-2" />
+</div>
+
+<div class="row">
   <button id="HBubble">BOLLA ORIZZONTALE</button>
   <button id="VBubble">BOLLA VERTICALE</button>
-  <button id="save" disabled>Save file</button>
+</div>
 
-  <pre id="log"></pre>
+<div class="vals">
+  <div><strong>Corrente:</strong></div>
+  <div>ID: <span id="curId">—</span></div>
+  <div>ALIGN: <span id="curAlign">—</span></div>
+  <div>ROLL: <span id="curRoll">—</span></div>
+  <div>PITCH: <span id="curPitch">—</span></div>
+  <div class="muted">Suggerimento: per ogni serramento compila ID, leggi ALIGN, poi ROLL/PITCH, quindi premi “Aggiungi record”.</div>
+</div>
+
+<div class="row">
+  <button id="addRecord" disabled>Aggiungi record (ID + timestamp + 3 valori)</button>
+  <button id="resetCurrent">Reset valori correnti</button>
+</div>
+
+<div class="row">
+  <button id="exportTxt" disabled>Esporta tutti i record (.txt)</button>
+  <button id="exportCsv" disabled>Esporta tutti i record (.csv)</button>
+  <button id="clearRecords">Svuota archivio</button>
+</div>
+
+<pre id="log"></pre>
 
 <script>
-
-const SERVICE_H_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";  //BOLLA ORIZZONTALE: ALIGN (1 riga)
+// === UUID (come da tuoi device) ===
+const SERVICE_H_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";  // BOLLA ORIZZONTALE: ALIGN (1 riga)
 const CHAR_H_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
-const SERVICE_V_UUID = "25971dbc-e721-4b15-881b-d0eb84c894b1";  //BOLLA VERTICALE: ROLL/PITCH (2 righe)
+const SERVICE_V_UUID = "25971dbc-e721-4b15-881b-d0eb84c894b1";  // BOLLA VERTICALE: ROLL/PITCH (2 righe)
 const CHAR_V_UUID    = "bdc979f5-a3f9-4004-9a9f-544d8fcfaf4c";
 
+// === UI refs ===
 const logEl = document.getElementById("log");
-const log = (m) => logEl.textContent += m + "\n";
+const doorIdEl = document.getElementById("doorId");
+const curIdEl = document.getElementById("curId");
+const curAlignEl = document.getElementById("curAlign");
+const curRollEl = document.getElementById("curRoll");
+const curPitchEl = document.getElementById("curPitch");
 
-let ALIGN = null;
-let ROLL  = null;
-let PITCH = null;
+const btnHBubble = document.getElementById("HBubble");
+const btnVBubble = document.getElementById("VBubble");
+const btnAddRecord = document.getElementById("addRecord");
+const btnResetCurrent = document.getElementById("resetCurrent");
+const btnExportTxt = document.getElementById("exportTxt");
+const btnExportCsv = document.getElementById("exportCsv");
+const btnClearRecords = document.getElementById("clearRecords");
 
-log("Premi sul pulsante desiderato e seleziona il device per connetterti…");
+// === Stato corrente (singolo serramento in lavorazione) ===
+let current = {
+  id: null,
+  align: null,
+  roll: null,
+  pitch: null
+};
 
-//Pulsante 1: HBubble -> lettura ALIGN
-document.getElementById("HBubble").onclick = async () => {
+//Archivio record (più serramenti)
+let records = []; // elementi { id, timestampISO, align, roll, pitch }
+
+//Bootstrap da localStorage
+(function loadFromStorage() {
   try {
-    //log("\nSeleziona bolla orizzontale…");
+    const rec = JSON.parse(localStorage.getItem("records") || "[]");
+    if (Array.isArray(rec)) {
+      records = rec;
+    }
+    const cur = JSON.parse(localStorage.getItem("current") || "null");
+    if (cur && typeof cur === "object") {
+      current = cur;
+      // ripristina input ID
+      doorIdEl.value = current.id || "";
+    }
+  } catch {}
+  refreshUI();
+  log("Pronto. Inserisci ID, poi leggi i valori.");
+})();
+
+//Helpers
+const log = (m) => { logEl.textContent += m + "\n"; };
+const decodeText = (dataView) => {
+  const bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
+  return new TextDecoder().decode(bytes);
+};
+function saveState() {
+  localStorage.setItem("records", JSON.stringify(records));
+  localStorage.setItem("current", JSON.stringify(current));
+}
+function refreshUI() {
+  curIdEl.textContent = current.id ?? "—";
+  curAlignEl.textContent = Number.isFinite(current.align) ? current.align : "—";
+  curRollEl.textContent  = Number.isFinite(current.roll)  ? current.roll  : "—";
+  curPitchEl.textContent = Number.isFinite(current.pitch) ? current.pitch : "—";
+
+  //Abilita "Aggiungi record" solo se ID + tutti e tre i valori presenti
+  const ready = !!current.id && Number.isFinite(current.align) && Number.isFinite(current.roll) && Number.isFinite(current.pitch);
+  btnAddRecord.disabled = !ready;
+
+  //Esporta abilitato se ci sono record
+  const hasRecords = records.length > 0;
+  btnExportTxt.disabled = !hasRecords;
+  btnExportCsv.disabled = !hasRecords;
+}
+
+//Gestione input ID
+doorIdEl.addEventListener("input", () => {
+  current.id = doorIdEl.value.trim() || null;
+  saveState();
+  refreshUI();
+});
+
+//Lettura: ALIGN (HBubble)
+btnHBubble.onclick = async () => {
+  try {
+    if (!current.id) {
+      current.id = (doorIdEl.value.trim() || null);
+      if (!current.id) throw new Error("Inserisci prima l'ID del serramento");
+    }
+    log("Seleziona la BOLLA ORIZZONTALE (ALIGN)...");
     const txt = await readDeviceFiltered(SERVICE_H_UUID, CHAR_H_UUID);
+    const val = parseFloat(txt.trim());
+    if (!Number.isFinite(val)) throw new Error("ALIGN non numerico: " + txt);
 
-    ALIGN = parseFloat(txt.trim());
-    if (!Number.isFinite(ALIGN)) throw new Error("ALIGN non numerico");
-
-    log("ALIGN = " + ALIGN);
-    maybeEnableSave();
-
+    current.align = val;
+    saveState();
+    refreshUI();
+    log("ALIGN = " + val);
   } catch (e) {
     log("❌ " + e.message);
   }
 };
 
-//Pulsante 2: VBubble -> lettura ROLL/PITCH
-document.getElementById("VBubble").onclick = async () => {
+//Lettura: ROLL/PITCH (VBubble)
+btnVBubble.onclick = async () => {
   try {
-    //log("\nSeleziona bolla verticale…");
+    if (!current.id) {
+      current.id = (doorIdEl.value.trim() || null);
+      if (!current.id) throw new Error("Inserisci prima l'ID del serramento");
+    }
+    log("Seleziona la BOLLA VERTICALE (ROLL/PITCH)...");
     const txt = await readDeviceFiltered(SERVICE_V_UUID, CHAR_V_UUID);
-
     const lines = txt.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-    if (lines.length < 2) throw new Error("Expected 2 lines");
+    if (lines.length < 2) throw new Error("Attese 2 righe (ROLL, PITCH), ricevuto: " + JSON.stringify(lines));
 
-    ROLL  = parseFloat(lines[0]);
-    PITCH = parseFloat(lines[1]);
+    const roll = parseFloat(lines[0]);
+    const pitch = parseFloat(lines[1]);
+    if (!Number.isFinite(roll) || !Number.isFinite(pitch))
+      throw new Error("ROLL/PITCH non numerici: " + txt);
 
-    log("ROLL  = " + ROLL);
-    log("PITCH = " + PITCH);
-
-    maybeEnableSave();
-
+    current.roll = roll;
+    current.pitch = pitch;
+    saveState();
+    refreshUI();
+    log("ROLL = " + roll + " | PITCH = " + pitch);
   } catch (e) {
     log("❌ " + e.message);
   }
@@ -69,7 +191,6 @@ async function readDeviceFiltered(serviceUUID, charUUID) {
     device = await navigator.bluetooth.requestDevice({
       filters: [{ services: [serviceUUID] }]
     });
-
     const server = await device.gatt.connect();
     const service = await server.getPrimaryService(serviceUUID);
     const ch = await service.getCharacteristic(charUUID);
@@ -77,41 +198,101 @@ async function readDeviceFiltered(serviceUUID, charUUID) {
     const dv = await ch.readValue();
     const txt = decodeText(dv);
 
-    device.gatt.disconnect();
+    if (device.gatt.connected) device.gatt.disconnect();
     return txt;
-
   } catch (err) {
-    try { if (device?.gatt?.connected) device.gatt.disconnect(); } catch (_) {}
+    try { if (device?.gatt?.connected) device.gatt.disconnect(); } catch(_) {}
     throw err;
   }
 }
 
-//Decode data
-function decodeText(dataView) {
-  const bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
-  return new TextDecoder().decode(bytes);
-}
+//Aggiunta record (accoda ai risultati)
+btnAddRecord.onclick = () => {
+  if (!current.id) return log("❌ ID mancante");
+  if (!Number.isFinite(current.align) || !Number.isFinite(current.roll) || !Number.isFinite(current.pitch))
+    return log("❌ Mancano dei valori (ALIGN/ROLL/PITCH)");
 
-//Saving file
-function maybeEnableSave() {
-  if (ALIGN !== null || (ROLL !== null && PITCH !== null))
-    document.getElementById("save").disabled = false;
-}
-document.getElementById("save").onclick = () => {
-  let txt = "";
-  if (ALIGN !== null) txt += `ALIGN: ${ALIGN}\n`;
-  if (ROLL  !== null) txt += `ROLL: ${ROLL}\n`;
-  if (PITCH !== null) txt += `PITCH: ${PITCH}\n`;
+  const timestampISO = new Date().toISOString(); // un solo orario per il serramento
+  records.push({
+    id: current.id,
+    timestampISO,
+    align: current.align,
+    roll: current.roll,
+    pitch: current.pitch
+  });
+  saveState();
+  refreshUI();
+  log(`✅ Record aggiunto: ID=${current.id} @ ${timestampISO}`);
 
-  const blob = new Blob([txt], { type: "text/plain" });
+  // opzionale: se vuoi automaticamente prepararti per il prossimo serramento, svuota i correnti ma lascia l'ID vuoto
+  current = { id: null, align: null, roll: null, pitch: null };
+  doorIdEl.value = "";
+  saveState();
+  refreshUI();
+};
+
+//Reset solo dei valori correnti (utile se vuoi rifare le letture per lo stesso o altro ID)
+btnResetCurrent.onclick = () => {
+  current = { id: (doorIdEl.value.trim() || null), align: null, roll: null, pitch: null };
+  saveState();
+  refreshUI();
+  log("Valori correnti azzerati.");
+};
+
+//Esporta TXT nel formato richiesto
+btnExportTxt.onclick = () => {
+  if (records.length === 0) return;
+  const lines = [];
+  for (const r of records) {
+    // timestamp leggibile
+    const human = new Date(r.timestampISO).toLocaleString();
+    lines.push(
+`ID: ${r.id}
+TIME: ${human}
+ALIGN: ${r.align}
+ROLL: ${r.roll}
+PITCH: ${r.pitch}
+---`
+    );
+  }
+  const txt = lines.join("\n");
+  downloadText(txt, "misure.txt");
+  log("Esportato TXT.");
+};
+
+//Esporta CSV (utile per Excel)
+btnExportCsv.onclick = () => {
+  if (records.length === 0) return;
+  const rows = [["ID","TIME_ISO","ALIGN","ROLL","PITCH"]];
+  for (const r of records) {
+    rows.push([r.id, r.timestampISO, r.align, r.roll, r.pitch]);
+  }
+  const csv = rows.map(arr => arr.map(field => {
+    const s = String(field ?? "");
+    return /[",;\n"]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  }).join("," )).join("\n");
+  downloadText(csv, "misure.csv", "text/csv");
+  log("Esportato CSV.");
+};
+
+//Svuota archivio
+btnClearRecords.onclick = () => {
+  if (!confirm("Sicura di voler svuotare tutti i record salvati?")) return;
+  records = [];
+  saveState();
+  refreshUI();
+  log("Archivio svuotato.");
+};
+
+//Download helper
+function downloadText(text, filename, mime="text/plain") {
+  const blob = new Blob([text], { type: mime });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "misure.txt";
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
-
-  log("\nFile saved.");
-};
+}
 </script>
 </body>
 </html>
