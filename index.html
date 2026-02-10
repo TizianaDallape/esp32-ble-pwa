@@ -1,66 +1,147 @@
 <!doctype html>
 <html>
 <body>
-  <button id="connect">Connect & Read once</button>
+  <button id="connect">Connect & Read BOTH</button>
+  <button id="save" disabled>Save file</button>
   <pre id="log"></pre>
 
 <script>
-const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
-const CHAR_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
-const logEl = document.getElementById("log");
+const SERVICE_H_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b"; //BOLLA ORIZZONTALE: ALIGN (1 riga)
+const CHAR_H_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+const SERVICE_V_UUID = "25971dbc-e721-4b15-881b-d0eb84c894b1"; //BOLLA VERTICALE: ROLL/PITCH (2 righe)
+const CHAR_V_UUID    = "bdc979f5-a3f9-4004-9a9f-544d8fcfaf4c";
+
+const logEl = document.getElementById("log");           //log helper
 const log = (m) => { logEl.textContent += m + "\n"; };
 
-let device = null;
-let server = null;
-let ch = null;
+let ALIGN = null;
+let ROLL  = null;
+let PITCH = null;
 
+//Pulsante principale: sequenza completa
 document.getElementById("connect").onclick = async () => {
   try {
-    log("Requesting device, and BLE setup...");
-    device = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [SERVICE_UUID] }],
+    logEl.textContent = "";
+    ALIGN = ROLL = PITCH = null;
+    document.getElementById("save").disabled = true;
+
+    // 1) Seleziona e leggi dal dispositivo H (ALIGN)
+    log("STEP 1/2 • Seleziona dispositivo ALIGN (servizio H)...");
+    const alignTxt = await connectReadOnce({
+      serviceUUID: SERVICE_H_UUID,
+      charUUID: CHAR_H_UUID,
+      filterService: SERVICE_H_UUID, // filtra subito il device giusto
+      label: "ALIGN"
     });
+    ALIGN = parseFloat(alignTxt);
+    if (!Number.isFinite(ALIGN)) throw new Error("ALIGN non numerico: " + alignTxt);
+    log("ALIGN = " + ALIGN);
 
-    device.addEventListener("gattserverdisconnected", onDisconnected);
+    // 2) Seleziona e leggi dal dispositivo V (ROLL/PITCH su due righe)
+    log("\nSTEP 2/2 • Seleziona dispositivo ROLL/PITCH (servizio V)...");
+    const rpTxt = await connectReadOnce({
+      serviceUUID: SERVICE_V_UUID,
+      charUUID: CHAR_V_UUID,
+      filterService: SERVICE_V_UUID,
+      label: "ROLL/PITCH"
+    });
+    // Decodifica due righe: ROLL in riga 1, PITCH in riga 2
+    const lines = rpTxt.split(/\r?\n/).map(s => s.trim()).filter(s => s.length > 0);
+    if (lines.length < 2) throw new Error("Attese 2 righe (ROLL, PITCH), ricevuto: " + JSON.stringify(lines));
 
-    //log("Connecting GATT...");
-    server = await device.gatt.connect();
-    //log("Getting service...");
-    const service = await server.getPrimaryService(SERVICE_UUID);
-    //log("Getting characteristic...");
-    ch = await service.getCharacteristic(CHAR_UUID);
+    ROLL  = parseFloat(lines[0]);
+    PITCH = parseFloat(lines[1]);
+    if (!Number.isFinite(ROLL) || !Number.isFinite(PITCH))
+      throw new Error("ROLL/PITCH non numerici: " + rpTxt);
 
-    log("Reading value once...");
-    const dv = await ch.readValue();       // DataView
-    const value = decodeText(dv);
-    log("Allineamento floor: " + value + " °");
+    log("ROLL  = " + ROLL);
+    log("PITCH = " + PITCH);
 
-    log("Disconnecting...");
-    device.gatt.disconnect();
+    // Abilita salvataggio
+    document.getElementById("save").disabled = false;
+    log("\n✅ Letture completate. Premi 'Save file' per salvare il report.");
 
   } catch (e) {
     log("❌ " + e.name + ": " + e.message);
-    safeDisconnect();
   }
 };
 
-function onDisconnected() {
-  log("Device disconnected.");
-  // Eventuale pulizia UI
+/* === Salvataggio su file .txt === */
+document.getElementById("save").onclick = async () => {
+  try {
+    if (!Number.isFinite(ALIGN) || !Number.isFinite(ROLL) || !Number.isFinite(PITCH))
+      throw new Error("Valori non pronti. Riesegui la lettura.");
+
+    const txt = `ALIGN: ${ALIGN}\nROLL: ${ROLL}\nPITCH: ${PITCH}\n`;
+    await saveTextFile(txt, "misure.txt");
+    log("💾 File salvato.");
+  } catch (e) {
+    log("❌ " + e.name + ": " + e.message);
+  }
+};
+
+/* === Funzione generica: seleziona device per service, legge una characteristic e disconnette === */
+async function connectReadOnce({ serviceUUID, charUUID, filterService, label }) {
+  let device = null;
+  try {
+    // 1) Scelta device filtrando per servizio (mostra solo i device con quel servizio)
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [filterService] }],
+    });
+
+    device.addEventListener("gattserverdisconnected", () => {
+      log(`ℹ️ ${label}: device disconnected.`);
+    });
+
+    // 2) Connessione
+    const server = await device.gatt.connect();
+
+    // 3) Service + Characteristic
+    const service = await server.getPrimaryService(serviceUUID);
+    const ch = await service.getCharacteristic(charUUID);
+
+    // 4) Read (una sola volta)
+    const dv = await ch.readValue();
+    const value = decodeText(dv);
+    log(`📖 ${label}: RX = "${value.replace(/\r?\n/g, " | ")}"`);
+
+    // 5) Disconnessione
+    if (device.gatt.connected) device.gatt.disconnect();
+    return value;
+
+  } catch (e) {
+    // Prova a disconnettere in ogni caso
+    try { if (device?.gatt?.connected) device.gatt.disconnect(); } catch (_) {}
+    throw e;
+  }
 }
 
-// Decodifica robusta del DataView (UTF-8 testuale)
+/* === Decodifica robusta del DataView === */
 function decodeText(dataView) {
-  // Copia i byte esattamente letti (evita extra padding del buffer)
   const bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
   return new TextDecoder().decode(bytes).trim();
 }
 
-function safeDisconnect() {
-  try {
-    if (device?.gatt?.connected) device.gatt.disconnect();
-  } catch (_) {}
+/* === Salvataggio: usa File System Access API se disponibile, altrimenti fallback download === */
+async function saveTextFile(text, filename) {
+  // Chrome/Edge moderni (anche Android) hanno showSaveFilePicker
+  if (window.showSaveFilePicker) {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: filename,
+      types: [{ description: "Text file", accept: { "text/plain": [".txt"] } }]
+    });
+    const writable = await handle.createWritable();
+    await writable.write(text);
+    await writable.close();
+  } else {
+    // Fallback: download via Blob
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 }
 </script>
 </body>
