@@ -17,26 +17,24 @@ let ch = null;
 
 document.getElementById("connect").onclick = async () => {
   try {
-    log("Requesting device...");
+    log("Requesting device, and BLE setup...");
     device = await navigator.bluetooth.requestDevice({
       filters: [{ services: [SERVICE_UUID] }],
     });
 
     device.addEventListener("gattserverdisconnected", onDisconnected);
 
-    log("Connecting GATT...");
+    //log("Connecting GATT...");
     server = await device.gatt.connect();
-
-    log("Getting service...");
+    //log("Getting service...");
     const service = await server.getPrimaryService(SERVICE_UUID);
-
-    log("Getting characteristic...");
+    //log("Getting characteristic...");
     ch = await service.getCharacteristic(CHAR_UUID);
 
     log("Reading value once...");
     const dv = await ch.readValue();       // DataView
     const value = decodeText(dv);
-    log("RX: " + value);
+    log("Allineamento floor: " + value + " °");
 
     log("Disconnecting...");
     device.gatt.disconnect();
