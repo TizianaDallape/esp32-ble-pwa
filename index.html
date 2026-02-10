@@ -1,129 +1,115 @@
 <!doctype html>
 <html>
 <body>
-  <button id="connect">Connect & Read</button>
+  <button id="HBubble">BOLLA ORIZZONTALE</button>
+  <button id="VBubble">BOLLA VERTICALE</button>
   <button id="save" disabled>Save file</button>
+
   <pre id="log"></pre>
 
 <script>
 
-const SERVICE_H_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b"; //BOLLA ORIZZONTALE: ALIGN (1 riga)
+const SERVICE_H_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";  //BOLLA ORIZZONTALE: ALIGN (1 riga)
 const CHAR_H_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
-const SERVICE_V_UUID = "25971dbc-e721-4b15-881b-d0eb84c894b1"; //BOLLA VERTICALE: ROLL/PITCH (2 righe)
+const SERVICE_V_UUID = "25971dbc-e721-4b15-881b-d0eb84c894b1";  //BOLLA VERTICALE: ROLL/PITCH (2 righe)
 const CHAR_V_UUID    = "bdc979f5-a3f9-4004-9a9f-544d8fcfaf4c";
 
-const logEl = document.getElementById("log");     //log helper
+const logEl = document.getElementById("log");
 const log = (m) => logEl.textContent += m + "\n";
 
 let ALIGN = null;
 let ROLL  = null;
 let PITCH = null;
 
-//Pulsante principale: sequenza completa
-document.getElementById("connect").onclick = async () => {
+//Pulsante 1: HBubble -> lettura ALIGN
+document.getElementById("HBubble").onclick = async () => {
   try {
-    log("\nSelect a BLE device…");
+    log("\nSeleziona bolla orizzontale…");
+    const txt = await readDeviceFiltered(SERVICE_H_UUID, CHAR_H_UUID);
 
-    // === NESSUN FILTRO: fai scegliere all’utente ===
-    const device = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: [SERVICE_H_UUID, SERVICE_V_UUID]
-    });
+    ALIGN = parseFloat(txt.trim());
+    if (!Number.isFinite(ALIGN)) throw new Error("ALIGN non numerico");
 
-    device.addEventListener("gattserverdisconnected", () => {
-      log("Disconnected.\n");
-    });
-
-    const server = await device.gatt.connect();
-    log("Connected to: " + device.name);
-
-    // === Controlla quali servizi ha ===
-    const services = await server.getPrimaryServices();
-    const serviceUUIDs = services.map(s => s.uuid.toLowerCase());
-    log("Services found:\n" + serviceUUIDs.join("\n"));
-
-    let type = null;
-
-    // === RICONOSCIMENTO AUTOMATICO DEL TIPO DI ESP ===
-    if (serviceUUIDs.includes(SERVICE_H_UUID)) {
-      type = "H"; // ALIGN
-    } else if (serviceUUIDs.includes(SERVICE_V_UUID)) {
-      type = "V"; // ROLL/PITCH
-    } else {
-      throw new Error("Device not recognized as ALIGN or ROLL/PITCH");
-    }
-
-    let valueTxt = "";
-
-    if (type === "H") {
-      log("Detected: ALIGN device");
-      const service = await server.getPrimaryService(SERVICE_H_UUID);
-      const ch = await service.getCharacteristic(CHAR_H_UUID);
-
-      const dv = await ch.readValue();
-      valueTxt = decodeText(dv).trim();
-      ALIGN = parseFloat(valueTxt);
-
-      log("ALIGN = " + ALIGN);
-
-    } else if (type === "V") {
-      log("Detected: ROLL/PITCH device");
-      const service = await server.getPrimaryService(SERVICE_V_UUID);
-      const ch = await service.getCharacteristic(CHAR_V_UUID);
-
-      const dv = await ch.readValue();
-      valueTxt = decodeText(dv);
-
-      const lines = valueTxt.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-
-      if (lines.length < 2) throw new Error("Expected 2 lines for ROLL/PITCH");
-
-      ROLL  = parseFloat(lines[0]);
-      PITCH = parseFloat(lines[1]);
-
-      log("ROLL  = " + ROLL);
-      log("PITCH = " + PITCH);
-    }
-
-    // disconnessione
-    device.gatt.disconnect();
-
-    // attiva salvataggio solo se hai almeno un dato
-    if (ALIGN !== null || (ROLL !== null && PITCH !== null))
-      document.getElementById("save").disabled = false;
+    log("ALIGN = " + ALIGN);
+    maybeEnableSave();
 
   } catch (e) {
-    log("❌ " + e.name + ": " + e.message);
+    log("❌ " + e.message);
   }
 };
 
-/* === Salvataggio file === */
-document.getElementById("save").onclick = async () => {
-  let txt = "";
-  if (ALIGN !== null) txt += `ALIGN: ${ALIGN}\n`;
-  if (ROLL  !== null) txt += `ROLL: ${ROLL}\n`;
-  if (PITCH !== null) txt += `PITCH: ${PITCH}\n`;
+//Pulsante 2: VBubble -> lettura ROLL/PITCH
+document.getElementById("VBubble").onclick = async () => {
+  try {
+    log("\nSelect ROLL/PITCH device…");
+    const txt = await readDeviceFiltered(SERVICE_V_UUID, CHAR_V_UUID);
 
-  await downloadText(txt, "misure.txt");
-  log("Saved file.");
+    const lines = txt.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (lines.length < 2) throw new Error("Expected 2 lines");
+
+    ROLL  = parseFloat(lines[0]);
+    PITCH = parseFloat(lines[1]);
+
+    log("ROLL  = " + ROLL);
+    log("PITCH = " + PITCH);
+
+    maybeEnableSave();
+
+  } catch (e) {
+    log("❌ " + e.message);
+  }
 };
 
-/* === Utils === */
+//Search just 1 device with unique certain service
+async function readDeviceFiltered(serviceUUID, charUUID) {
+  let device = null;
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [serviceUUID] }]
+    });
+
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(serviceUUID);
+    const ch = await service.getCharacteristic(charUUID);
+
+    const dv = await ch.readValue();
+    const txt = decodeText(dv);
+
+    device.gatt.disconnect();
+    return txt;
+
+  } catch (err) {
+    try { if (device?.gatt?.connected) device.gatt.disconnect(); } catch (_) {}
+    throw err;
+  }
+}
+
+//Decode data
 function decodeText(dataView) {
   const bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
   return new TextDecoder().decode(bytes);
 }
 
-async function downloadText(text, filename) {
-  const blob = new Blob([text], { type: "text/plain" });
+//Saving file
+function maybeEnableSave() {
+  if (ALIGN !== null || (ROLL !== null && PITCH !== null))
+    document.getElementById("save").disabled = false;
+}
+document.getElementById("save").onclick = () => {
+  let txt = "";
+  if (ALIGN !== null) txt += `ALIGN: ${ALIGN}\n`;
+  if (ROLL  !== null) txt += `ROLL: ${ROLL}\n`;
+  if (PITCH !== null) txt += `PITCH: ${PITCH}\n`;
+
+  const blob = new Blob([txt], { type: "text/plain" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = filename;
+  a.download = "misure.txt";
   a.click();
   URL.revokeObjectURL(a.href);
-}
 
+  log("\nFile saved.");
+};
 </script>
 </body>
 </html>
- 
