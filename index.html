@@ -39,7 +39,8 @@
     1) Compila ID
     2) Premi "BOLLA ORIZZONTALE"
     3) Premi "BOLLA VERTICALE"
-    4) Premi "Salva dati correnti".</div>
+    4) Premi "Salva dati correnti"
+    5) Premi "Esporta tutti i record".</div>
 </div>
 
 <div class="row">
@@ -89,6 +90,16 @@ const decodeText = (dataView) => {
   return new TextDecoder().decode(bytes);
 };
 
+
+function highlightDoorIdError(on) {
+  if (on) {
+    doorIdEl.style.border = "2px solid red";
+  } else {
+    doorIdEl.style.border = "";
+  }
+}
+
+
 //Stato corrente (singolo serramento in lavorazione)
 let current = {
   id: null,
@@ -110,7 +121,7 @@ let records = []; //elementi { id, timestampISO, align, roll, pitch }
     const cur = JSON.parse(localStorage.getItem("current") || "null");
     if (cur && typeof cur === "object") {
       current = cur;
-      // ripristina input ID
+      //ripristina input ID
       doorIdEl.value = current.id || "";
     }
   } catch {}
@@ -148,10 +159,10 @@ doorIdEl.addEventListener("input", () => {
 //Lettura: ALIGN (HBubble)
 btnHBubble.onclick = async () => {
   try {
-    if (!current.id) {
-      current.id = (doorIdEl.value.trim() || null);
-      if (!current.id) throw new Error("Inserisci prima l'ID del serramento");
-    }
+//    if (!current.id) {
+//      current.id = (doorIdEl.value.trim() || null);
+//      if (!current.id) throw new Error("Inserisci prima l'ID del serramento");
+//    }
     if (DEVICE_H == null) {
       DEVICE_H = await navigator.bluetooth.requestDevice({
         filters: [{ services: [SERVICE_H_UUID] }]
@@ -174,10 +185,10 @@ btnHBubble.onclick = async () => {
 //Lettura: ROLL/PITCH (VBubble)
 btnVBubble.onclick = async () => {
   try {
-    if (!current.id) {
-      current.id = (doorIdEl.value.trim() || null);
-      if (!current.id) throw new Error("Inserisci prima l'ID del serramento");
-    }
+//    if (!current.id) {
+//      current.id = (doorIdEl.value.trim() || null);
+//      if (!current.id) throw new Error("Inserisci prima l'ID del serramento");
+//    }
     if (DEVICE_V == null) {
       DEVICE_V = await navigator.bluetooth.requestDevice({
         filters: [{ services: [SERVICE_V_UUID] }]
@@ -223,27 +234,40 @@ async function readDeviceFiltered(device, serviceUUID, charUUID) {
 
 //Aggiunta record (accoda ai risultati)
 btnAddRecord.onclick = () => {
-  if (!current.id) return log("❌ ID mancante");
-  if (!Number.isFinite(current.align) || !Number.isFinite(current.roll) || !Number.isFinite(current.pitch))
-    return log("❌ Valori mancanti (ALIGN/ROLL/PITCH)");
+  try {
+    if (!current.id) {
+      current.id = (doorIdEl.value.trim() || null);
+      if (!current.id) {
+        highlightDoorIdError(true);
+        throw new Error("Inserisci prima l'ID del serramento");
+      }
+    }
+    highlightDoorIdError(false);
+    //if (!current.id) return log("❌ ID mancante");
+    if (!Number.isFinite(current.align) || !Number.isFinite(current.roll) || !Number.isFinite(current.pitch))
+      throw new Error("Valori mancanti (ALIGN/ROLL/PITCH)");
 
-  const timestampISO = new Date().toISOString(); // un solo orario per il serramento
-  records.push({
-    id: current.id,
-    timestampISO,
-    align: current.align,
-    roll: current.roll,
-    pitch: current.pitch
-  });
-  saveState();
-  refreshUI();
-  log(`✅ Record aggiunto: ID=${current.id} @ ${timestampISO}`);
+    const timestampISO = new Date().toISOString(); // un solo orario per il serramento
+    records.push({
+      id: current.id,
+      timestampISO,
+      align: current.align,
+      roll: current.roll,
+      pitch: current.pitch
+    });
+    saveState();
+    refreshUI();
+    log(`✅ Record aggiunto: ID=${current.id} @ ${timestampISO}`);
 
-  //opzionale: se vuoi automaticamente prepararti per il prossimo serramento, svuota i correnti ma lascia l'ID vuoto
-  current = { id: null, align: null, roll: null, pitch: null };
-  doorIdEl.value = "";
-  saveState();
-  refreshUI();
+    //opzionale: se vuoi automaticamente prepararti per il prossimo serramento, svuota i correnti ma lascia l'ID vuoto
+    current = { id: null, align: null, roll: null, pitch: null };
+    doorIdEl.value = "";
+    highlightDoorIdError(false);
+    saveState();
+    refreshUI();
+  } catch (e) {
+      log("❌ " + e.message);
+  }
 };
 
 //Reset solo dei valori correnti (utile se vuoi rifare le letture per lo stesso o altro ID)
