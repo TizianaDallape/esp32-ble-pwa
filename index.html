@@ -17,7 +17,7 @@
 </head>
 <body>
 
-<h2>Misure serramenti</h2>
+<h2>Serramenti</h2>
 
 <div class="row">
   <label for="doorId">ID serramento</label>
@@ -52,6 +52,8 @@
 <pre id="log"></pre>
 
 <script>
+window.onerror = (msg, src, line, col) => alert(msg + "\n" + src + ":" + line + ":" + col);
+
 //UUID
 const SERVICE_H_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";  // BOLLA ORIZZONTALE: ALIGN (1 riga)
 const CHAR_H_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
