@@ -17,7 +17,7 @@
 </head>
 <body>
 
-<h2>Porte</h2>
+<h2>Dati serramento</h2>
 
 <div class="row">
   <label for="doorId">ID serramento</label>
@@ -30,17 +30,17 @@
 </div>
 
 <div class="vals">
-  <div><strong>Corrente:</strong></div>
-  <div>ID: <span id="curId">—</span></div>
-  <div>ALIGN: <span id="curAlign">—</span></div>
-  <div>ROLL: <span id="curRoll">—</span></div>
-  <div>PITCH: <span id="curPitch">—</span></div>
-  <div class="muted">Suggerimento: per ogni serramento compila ID, premi BOLLA ORIZZONTALE, poi BOLLA VERTICALE, quindi premi “Aggiungi record”.</div>
+  <div><strong>Serramento corrente:</strong></div>
+  <div>ID: <span id="curId">---</span></div>
+  <div>ALIGN: <span id="curAlign">---</span></div>
+  <div>ROLL: <span id="curRoll">---</span></div>
+  <div>PITCH: <span id="curPitch">---</span></div>
+  <div class="muted">Istruzioni: \n 1) Compila ID\n 2) Premi "BOLLA ORIZZONTALE"\n 3) Premi "BOLLA VERTICALE"\n 4) Premi "Salva record".</div>
 </div>
 
 <div class="row">
-  <button id="addRecord" disabled>Aggiungi record (ID + timestamp + 3 valori)</button>
-  <button id="resetCurrent">Reset valori correnti</button>
+  <button id="addRecord" disabled>Salva record</button>
+  <button id="resetCurrent">Reset dati correnti</button>
 </div>
 
 <div class="row">
@@ -94,7 +94,7 @@ let current = {
 };
 
 //Archivio record (più serramenti)
-let records = []; // elementi { id, timestampISO, align, roll, pitch }
+let records = []; //elementi { id, timestampISO, align, roll, pitch }
 
 //Bootstrap da localStorage
 (function loadFromStorage() {
@@ -111,7 +111,7 @@ let records = []; // elementi { id, timestampISO, align, roll, pitch }
     }
   } catch {}
   refreshUI();
-  log("Pronto. Inserisci ID, poi leggi i valori.");
+  log("Pronto. Inserisci ID, poi premi BOLLA ORIZZONTALE/BOLLA VERTICALE per connetterti alla bolla e leggere i rispettivi valori.");
 })();
 
 function saveState() {
@@ -120,9 +120,9 @@ function saveState() {
 }
 function refreshUI() {
   curIdEl.textContent = current.id ?? "—";
-  curAlignEl.textContent = Number.isFinite(current.align) ? current.align : "—";
-  curRollEl.textContent  = Number.isFinite(current.roll)  ? current.roll  : "—";
-  curPitchEl.textContent = Number.isFinite(current.pitch) ? current.pitch : "—";
+  curAlignEl.textContent = Number.isFinite(current.align) ? current.align : "---";
+  curRollEl.textContent  = Number.isFinite(current.roll)  ? current.roll  : "---";
+  curPitchEl.textContent = Number.isFinite(current.pitch) ? current.pitch : "---";
 
   //Abilita "Aggiungi record" solo se ID + tutti e tre i valori presenti
   const ready = !!current.id && Number.isFinite(current.align) && Number.isFinite(current.roll) && Number.isFinite(current.pitch);
@@ -153,7 +153,7 @@ btnHBubble.onclick = async () => {
         filters: [{ services: [SERVICE_H_UUID] }]
       });
     }
-    log("Seleziona la BOLLA ORIZZONTALE (ALIGN)...");
+    //log("Seleziona la BOLLA ORIZZONTALE (ALIGN)...");
     const txt = await readDeviceFiltered(DEVICE_H, SERVICE_H_UUID, CHAR_H_UUID);
     const val = parseFloat(txt.trim());
     if (!Number.isFinite(val)) throw new Error("ALIGN non numerico: " + txt);
@@ -172,14 +172,14 @@ btnVBubble.onclick = async () => {
   try {
     if (!current.id) {
       current.id = (doorIdEl.value.trim() || null);
-      if (!current.id) throw new Error("Inserisci prima l'ID del serramento");
+      if (!current.id) throw new Error("❌ Inserisci prima l'ID del serramento");
     }
     if (DEVICE_V == null) {
       DEVICE_V = await navigator.bluetooth.requestDevice({
         filters: [{ services: [SERVICE_V_UUID] }]
       });
     }
-    log("Seleziona la BOLLA VERTICALE (ROLL/PITCH)...");
+    //log("Seleziona la BOLLA VERTICALE (ROLL/PITCH)...");
     const txt = await readDeviceFiltered(DEVICE_V, SERVICE_V_UUID, CHAR_V_UUID);
     const lines = txt.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
     if (lines.length < 2) throw new Error("Attese 2 righe (ROLL, PITCH), ricevuto: " + JSON.stringify(lines));
@@ -198,11 +198,6 @@ btnVBubble.onclick = async () => {
     log("❌ " + e.message);
   }
 };
-
-
-async function readDevice(serviceUUID, charUUID) {
-
-}
 
 //Search just 1 device with unique certain service
 async function readDeviceFiltered(device, serviceUUID, charUUID) {
@@ -226,7 +221,7 @@ async function readDeviceFiltered(device, serviceUUID, charUUID) {
 btnAddRecord.onclick = () => {
   if (!current.id) return log("❌ ID mancante");
   if (!Number.isFinite(current.align) || !Number.isFinite(current.roll) || !Number.isFinite(current.pitch))
-    return log("❌ Mancano dei valori (ALIGN/ROLL/PITCH)");
+    return log("❌ Valori mancanti (ALIGN/ROLL/PITCH)");
 
   const timestampISO = new Date().toISOString(); // un solo orario per il serramento
   records.push({
@@ -268,11 +263,12 @@ TIME: ${human}
 ALIGN: ${r.align}
 ROLL: ${r.roll}
 PITCH: ${r.pitch}
----`
+---
+`
     );
   }
   const txt = lines.join("\n");
-  downloadText(txt, "misure.txt");
+  downloadText(txt, "record_dati_serramenti.txt");
   log("Esportato TXT.");
 };
 
@@ -290,13 +286,13 @@ btnExportCsv.onclick = () => {
       : s;
 
   }).join("," )).join("\n");
-  downloadText(csv, "misure.csv", "text/csv");
+  downloadText(csv, "record_dati_serramenti.csv", "text/csv");
   log("Esportato CSV.");
 };
 
 //Svuota archivio
 btnClearRecords.onclick = () => {
-  if (!confirm("Sicura di voler svuotare tutti i record salvati?")) return;
+  if (!confirm("Svuotare tutti i record salvati?")) return;
   records = [];
   saveState();
   refreshUI();
