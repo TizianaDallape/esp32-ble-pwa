@@ -272,7 +272,10 @@ btnExportCsv.onclick = () => {
   }
   const csv = rows.map(arr => arr.map(field => {
     const s = String(field ?? "");
-    return /[";, \n]/.test(s) ? '"${s.replace(/"/g, '""')}"' : s;
+    return /[";, \n]/.test(s)
+      ? '"' + s.replace(/"/g, '""') + '"'
+      : s;
+
   }).join("," )).join("\n");
   downloadText(csv, "misure.csv", "text/csv");
   log("Esportato CSV.");
