@@ -139,8 +139,8 @@ function refreshUI() {
   curRollEl.textContent  = Number.isFinite(current.roll)  ? current.roll  : "---";
   curPitchEl.textContent = Number.isFinite(current.pitch) ? current.pitch : "---";
 
-  //Abilita "Aggiungi record" solo se ID + tutti e tre i valori presenti
-  const ready = !!current.id && Number.isFinite(current.align) && Number.isFinite(current.roll) && Number.isFinite(current.pitch);
+  //Abilita "Salva dati correnti" solo se ID + tutti e tre i valori presenti
+  const ready = !!current.id && (Number.isFinite(current.align) || Number.isFinite(current.roll) || Number.isFinite(current.pitch));
   btnAddRecord.disabled = !ready;
 
   //Esporta abilitato se ci sono record
@@ -243,17 +243,16 @@ btnAddRecord.onclick = () => {
       }
     }
     highlightDoorIdError(false);
-    //if (!current.id) return log("❌ ID mancante");
-    if (!Number.isFinite(current.align) || !Number.isFinite(current.roll) || !Number.isFinite(current.pitch))
-      throw new Error("Valori mancanti (ALIGN/ROLL/PITCH)");
+    if (!Number.isFinite(current.align) && !Number.isFinite(current.roll) && !Number.isFinite(current.pitch))
+      throw new Error("Nessun valore da salvare (ALIGN/ROLL/PITCH)");
 
-    const timestampISO = new Date().toISOString(); // un solo orario per il serramento
+    const timestampISO = new Date().toISOString(); //un solo orario per il serramento
     records.push({
       id: current.id,
       timestampISO,
-      align: current.align,
-      roll: current.roll,
-      pitch: current.pitch
+      align: current.align ?? null,
+      roll: current.roll ?? null,
+      pitch: current.pitch ?? null
     });
     saveState();
     refreshUI();
