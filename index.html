@@ -293,7 +293,7 @@ btnAddRecord.onclick = () => {
 //Reset solo dei valori correnti (utile se vuoi rifare le letture per lo stesso o altro ID)
 btnResetCurrent.onclick = () => {
   if (unsavedChanges && lastRead === "V") {
-    if (!confirm("⚠️ I dati correnti non sono stati salvati. Sovrascriverli?")) {
+    if (!confirm("⚠️ I dati correnti non sono stati salvati. Resettarli?")) {
       return;
     }
   }
