@@ -206,7 +206,6 @@ btnVBubble.onclick = async () => {
         return;
       }
     }
-
     if (DEVICE_V == null) {
       DEVICE_V = await navigator.bluetooth.requestDevice({
         filters: [{ services: [SERVICE_V_UUID] }]
@@ -293,6 +292,11 @@ btnAddRecord.onclick = () => {
 
 //Reset solo dei valori correnti (utile se vuoi rifare le letture per lo stesso o altro ID)
 btnResetCurrent.onclick = () => {
+  if (unsavedChanges && lastRead === "V") {
+    if (!confirm("⚠️ I dati correnti non sono stati salvati. Sovrascriverli?")) {
+      return;
+    }
+  }
   current = { id: (doorIdEl.value.trim() || null), align: null, roll: null, pitch: null };
   saveState();
   refreshUI();
@@ -335,7 +339,6 @@ btnExportCsv.onclick = () => {
     return /[";, \n]/.test(s)
       ? '"' + s.replace(/"/g, '""') + '"'
       : s;
-
   }).join("," )).join("\n");
   downloadText(csv, "record_dati_serramenti.csv", "text/csv");
   log("Esportato CSV.");
